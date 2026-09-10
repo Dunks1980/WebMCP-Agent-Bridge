@@ -1,5 +1,7 @@
 # Local Ollama WebMCP Chat
 
+![Chat screenshot](./Chat-shot.png)
+
 A lightweight browser-based chat app that connects to a local Ollama server and exposes simple WebMCP tools for an AI agent to call.
 
 ## Features
