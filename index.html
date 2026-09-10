@@ -1,0 +1,978 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Local Ollama WebMCP Chat</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 18px;
+            background: #111;
+            color: #eee;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: clamp(1.5rem, 2.5vw, 2.6rem);
+            line-height: 1.1;
+            letter-spacing: -0.04em;
+            font-weight: 700;
+        }
+
+        p {
+            margin: 0 0 12px;
+            font-size: 0.98rem;
+            color: #e5e7eb;
+            max-width: 760px;
+        }
+
+        code {
+            font-family: "SFMono-Regular", Consolas, monospace;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 6px;
+            padding: 2px 7px;
+            color: #f5f5f5;
+        }
+
+        #status {
+            margin: 6px 0 14px;
+            font-size: 0.95rem;
+            color: #d1d5db;
+        }
+
+        #webmcp-test {
+            border: 1px solid #333;
+            padding: 10px 12px;
+            margin-bottom: 14px;
+        }
+
+        #counter {
+            font-size: 20px;
+        }
+
+        #chat {
+            border: 1px solid #333;
+            padding: 14px;
+            min-height: 300px;
+            margin-bottom: 14px;
+            overflow-y: auto;
+        }
+
+        .message {
+            margin-bottom: .5rem;
+            white-space: pre-wrap;
+        }
+
+        .user {
+            color: #8ec5ff;
+        }
+
+        .assistant {
+            color: #a6e3a1;
+        }
+
+        .tool {
+            color: #ffd580;
+        }
+
+        .settings {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+            gap: 14px;
+            margin: 12px 0 14px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255,255,255,0.18);
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: #d1d5db;
+            font-weight: 500;
+        }
+
+        form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .input-wrap {
+            display: flex;
+            align-items: center;
+            flex: 1;
+            gap: 8px;
+            padding: 0 8px 0 0;
+            border: 1px solid rgba(255,255,255,0.18);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.04);
+            overflow: hidden;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 11px 12px;
+            background: rgba(255, 255, 255, 0.04);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 6px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        input::placeholder {
+            color: rgba(255,255,255,0.6);
+        }
+
+        select {
+            appearance: none;
+            background-image: linear-gradient(45deg, transparent 50%, #eee 50%), linear-gradient(135deg, #eee 50%, transparent 50%);
+            background-position: calc(100% - 18px) calc(50% - 2px), calc(100% - 12px) calc(50% - 2px);
+            background-size: 6px 6px, 6px 6px;
+            background-repeat: no-repeat;
+            padding-right: 40px;
+        }
+
+        #input {
+            flex: 1;
+            min-height: 46px;
+            border: none;
+            background: transparent;
+            padding-left: 16px;
+        }
+
+        .voice-button,
+        button {
+            min-width: 84px;
+            height: 46px;
+            padding: 0 18px;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            background: #f2f2f2;
+            color: #111;
+            font-size: 0.95rem;
+            font-weight: 600;
+        }
+
+        .voice-button {
+            min-width: 46px;
+            width: 46px;
+            height: 46px;
+            padding: 0;
+            margin: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            line-height: 1;
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            border: 0px solid rgba(255,255,255,0.18);
+            border-left-width: 1px;
+            border-color: rgba(255,255,255,0.18);
+            border-radius: 0px;
+            margin-right: -8px;
+        }
+
+        .voice-button.listening {
+            background: #8ec5ff;
+            color: #111;
+        }
+
+        .voice-button svg {
+            width: 18px;
+            height: 18px;
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Ollama Chat</h1>
+
+    <p>
+        To test this locally, install a model such as <strong>qwen3:4b</strong> with
+        <code>ollama pull qwen3:4b</code>, then start it with
+        <code>ollama run qwen3:4b</code> so the chat can connect to your local Ollama server.
+        This setup runs well on a 2060 graphics card with 6GB of VRAM.
+    </p>
+
+    <div
+        id="status"
+        aria-live="polite"
+    >
+        Checking for WebMCP...
+    </div>
+
+
+    <div id="webmcp-test">
+
+        <small><strong>Chat and ask the assistant to increase or decrease the counter it will know what to do with the MCP tools its provided!</strong></small>
+
+        <p>
+            Counter:
+            <strong id="counter">0</strong>
+        </p>
+
+    </div>
+
+
+    <div id="chat"></div>
+
+    <div class="settings">
+        <label class="field">
+            <span>Ollama URL</span>
+            <input
+                id="ollama-url"
+                value="http://localhost:11434/api/chat"
+                autocomplete="off"
+            >
+        </label>
+
+        <label class="field">
+            <span>Ollama Model</span>
+            <select id="model-name">
+                <option value="qwen3:4b">qwen3:4b</option>
+            </select>
+        </label>
+    </div>
+
+    <form id="form">
+
+        <div class="input-wrap">
+            <input
+                id="input"
+                placeholder="Ask something..."
+                autocomplete="off"
+            >
+            <button
+                type="button"
+                class="voice-button"
+                id="voice-button"
+                aria-label="Voice input"
+                title="Use voice input"
+            >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2z" fill="currentColor"/>
+                </svg>
+            </button>
+        </div>
+
+        <button type="submit">Send</button>
+
+    </form>
+
+
+    <script>
+        const OLLAMA_URL = "http://localhost:11434/api/chat";
+        const MODEL = "qwen3:4b";
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Elements
+        |--------------------------------------------------------------------------
+        */
+
+        const chat = document.querySelector("#chat");
+        const form = document.querySelector("#form");
+        const input = document.querySelector("#input");
+        const status = document.querySelector("#status");
+        const counter = document.querySelector("#counter");
+        const ollamaUrlInput = document.querySelector("#ollama-url");
+        const modelInput = document.querySelector("#model-name");
+        const voiceButton = document.querySelector("#voice-button");
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        let recognition = null;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = "en-US";
+
+            recognition.onresult = event => {
+                const transcript = event.results[0][0].transcript;
+                input.value = transcript;
+                input.focus();
+
+                setTimeout(() => {
+                    form.requestSubmit();
+                }, 150);
+            };
+
+            recognition.onerror = () => {
+                status.textContent = "Voice input failed. Please try again.";
+                voiceButton.classList.remove("listening");
+            };
+
+            recognition.onend = () => {
+                voiceButton.classList.remove("listening");
+            };
+        }
+
+        voiceButton.addEventListener("click", () => {
+            if (!recognition) {
+                status.textContent = "Voice input is not supported in this browser.";
+                return;
+            }
+
+            if (voiceButton.classList.contains("listening")) {
+                recognition.stop();
+                return;
+            }
+
+            voiceButton.classList.add("listening");
+            status.textContent = "Listening for speech...";
+            recognition.start();
+        });
+
+        ollamaUrlInput.value = ollamaUrlInput.value || OLLAMA_URL;
+
+        async function loadModels() {
+            const url = (ollamaUrlInput.value || OLLAMA_URL).replace(/\/api\/chat$/i, "/api/tags");
+
+            try {
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`Could not load models: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                modelInput.innerHTML = "";
+
+                for (const model of data.models || []) {
+                    const option = document.createElement("option");
+
+                    option.value = model.name;
+                    option.textContent = model.name;
+
+                    if (model.name === MODEL) {
+                        option.selected = true;
+                    }
+
+                    modelInput.appendChild(option);
+                }
+
+                if (!modelInput.value) {
+                    modelInput.innerHTML = `<option value="${MODEL}">${MODEL}</option>`;
+                }
+            }
+            catch (error) {
+                console.error("Failed to load Ollama models:", error);
+
+                modelInput.innerHTML = `<option value="${MODEL}">${MODEL}</option>`;
+            }
+        }
+
+        loadModels();
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Conversation
+        |--------------------------------------------------------------------------
+        */
+
+        const messages = [];
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Test state
+        |--------------------------------------------------------------------------
+        */
+
+        let count = 0;
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Chat UI
+        |--------------------------------------------------------------------------
+        */
+
+        function addMessage(role, text) {
+
+            const div = document.createElement("div");
+
+            div.className = `message ${role}`;
+            div.textContent = `${role}: ${text}`;
+
+            chat.appendChild(div);
+
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Register WebMCP tool
+        |--------------------------------------------------------------------------
+        */
+
+        async function setupWebMCP() {
+
+            if (!("modelContext" in document)) {
+
+                status.textContent = "WebMCP not supported.";
+
+                return false;
+            }
+
+
+            try {
+
+                await document.modelContext.registerTool({
+
+                    name: "increment_counter",
+
+                    description:
+                        "Increase the counter displayed on this webpage by a specified amount.",
+
+                    inputSchema: {
+
+                        type: "object",
+
+                        properties: {
+
+                            amount: {
+
+                                type: "number",
+
+                                description:
+                                    "The amount to increase the webpage counter by."
+
+                            }
+
+                        },
+
+                        required: [
+                            "amount"
+                        ]
+
+                    },
+
+                    execute: async ({ amount }) => {
+
+                        console.log(
+                            "WebMCP executing increment_counter:",
+                            amount
+                        );
+
+
+                        count += amount;
+
+                        counter.textContent = count;
+
+
+                        return {
+                            success: true,
+                            counter: count
+                        };
+
+                    }
+
+                });
+
+
+                await document.modelContext.registerTool({
+                    name: "decrement_counter",
+
+                    description:
+                        "Decrease the counter displayed on this webpage by a specified amount.",
+
+                    inputSchema: {
+                        type: "object",
+
+                        properties: {
+                            amount: {
+                                type: "number",
+                                description: "The amount to decrease the webpage counter by."
+                            }
+                        },
+
+                        required: ["amount"]
+                    },
+
+                    execute: async ({ amount }) => {
+                        console.log(
+                            "WebMCP executing decrement_counter:",
+                            amount
+                        );
+
+                        count -= amount;
+                        counter.textContent = count;
+
+                        return {
+                            success: true,
+                            counter: count
+                        };
+                    }
+                });
+
+
+                status.textContent =
+                    "WebMCP ready - counter tools registered.";
+
+
+                return true;
+
+            }
+
+            catch (error) {
+
+                console.error(
+                    "WebMCP registration failed:",
+                    error
+                );
+
+
+                status.textContent =
+                    "WebMCP supported, but tool registration failed.";
+
+
+                return false;
+
+            }
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Convert WebMCP tools to Ollama tools
+        |--------------------------------------------------------------------------
+        */
+
+        async function getOllamaTools() {
+
+            const webmcpTools =
+                await document.modelContext.getTools();
+
+
+            console.log(
+                "WebMCP tools:",
+                webmcpTools
+            );
+
+
+            return webmcpTools.map(tool => {
+
+                let schema = tool.inputSchema;
+
+
+                /*
+                | Some WebMCP implementations expose inputSchema
+                | as JSON text rather than a JS object.
+                */
+
+                if (typeof schema === "string") {
+
+                    try {
+
+                        schema = JSON.parse(schema);
+
+                    }
+
+                    catch {
+
+                        schema = {
+                            type: "object",
+                            properties: {}
+                        };
+
+                    }
+
+                }
+
+
+                return {
+
+                    type: "function",
+
+                    function: {
+
+                        name: tool.name,
+
+                        description: tool.description,
+
+                        parameters: schema || {
+                            type: "object",
+                            properties: {}
+                        }
+
+                    }
+
+                };
+
+            });
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Ask Ollama
+        |--------------------------------------------------------------------------
+        */
+
+        async function askOllama() {
+
+            const tools = await getOllamaTools();
+            const currentUrl = (ollamaUrlInput.value || OLLAMA_URL).trim();
+            const currentModel = (modelInput.value || MODEL).trim();
+
+
+            const response = await fetch(
+                currentUrl,
+                {
+
+                    method: "POST",
+
+                    headers: {
+
+                        "Content-Type":
+                            "application/json"
+
+                    },
+
+                    body: JSON.stringify({
+
+                        model: currentModel,
+
+                        messages,
+
+                        tools,
+
+                        stream: false
+
+                    })
+
+                }
+            );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    `Ollama returned ${response.status}`
+                );
+
+            }
+
+
+            return response.json();
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Find WebMCP tool
+        |--------------------------------------------------------------------------
+        */
+
+        async function findWebMCPTool(name) {
+
+            const tools =
+                await document.modelContext.getTools();
+
+
+            return tools.find(
+                tool => tool.name === name
+            );
+
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Execute a tool requested by Qwen
+        |--------------------------------------------------------------------------
+        */
+
+        async function executeToolCall(call) {
+
+            const name =
+                call.function.name;
+
+
+            const args =
+                call.function.arguments || {};
+
+
+            addMessage(
+                "tool",
+                `${name} ${JSON.stringify(args)}`
+            );
+
+
+            console.log(
+                "Qwen requested tool:",
+                name,
+                args
+            );
+
+
+            const tool =
+                await findWebMCPTool(name);
+
+
+            if (!tool) {
+
+                throw new Error(
+                    `WebMCP tool "${name}" was not found.`
+                );
+
+            }
+
+
+            /*
+            | Current WebMCP implementations differ here.
+            |
+            | Try object arguments first.
+            | If that fails, try JSON encoded arguments.
+            */
+
+            let result;
+
+
+            try {
+
+                result =
+                    await document.modelContext.executeTool(
+                        tool,
+                        args
+                    );
+
+            }
+
+            catch (error) {
+
+                console.warn(
+                    "Object arguments failed, retrying as JSON:",
+                    error
+                );
+
+
+                result =
+                    await document.modelContext.executeTool(
+                        tool,
+                        JSON.stringify(args)
+                    );
+
+            }
+
+
+            console.log(
+                "WebMCP result:",
+                result
+            );
+
+
+            return result;
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Agent loop
+        |--------------------------------------------------------------------------
+        */
+
+        async function runAgent() {
+
+            /*
+            | We keep asking Qwen until it stops requesting tools.
+            */
+
+            for (let step = 0; step < 10; step++) {
+
+                const data =
+                    await askOllama();
+
+
+                console.log(
+                    "Ollama response:",
+                    data
+                );
+
+
+                const assistantMessage =
+                    data.message;
+
+
+                messages.push(
+                    assistantMessage
+                );
+
+
+                const toolCalls =
+                    assistantMessage.tool_calls || [];
+
+
+                /*
+                | No tool calls = Qwen has finished.
+                */
+
+                if (!toolCalls.length) {
+
+                    addMessage(
+                        "assistant",
+                        assistantMessage.content
+                    );
+
+
+                    return;
+
+                }
+
+
+                /*
+                | Execute every requested tool.
+                */
+
+                for (const call of toolCalls) {
+
+                    const result =
+                        await executeToolCall(call);
+
+
+                    /*
+                    | Give the tool result back to Qwen.
+                    */
+
+                    messages.push({
+
+                        role: "tool",
+
+                        tool_name:
+                            call.function.name,
+
+                        content:
+                            typeof result === "string"
+                                ? result
+                                : JSON.stringify(result)
+
+                    });
+
+                }
+
+            }
+
+
+            throw new Error(
+                "Agent exceeded maximum tool steps."
+            );
+        }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Form submit
+        |--------------------------------------------------------------------------
+        */
+
+        form.addEventListener(
+            "submit",
+            async event => {
+
+                event.preventDefault();
+
+
+                const text =
+                    input.value.trim();
+
+
+                if (!text) {
+                    return;
+                }
+
+
+                input.value = "";
+
+
+                messages.push({
+
+                    role: "user",
+
+                    content: text
+
+                });
+
+
+                addMessage(
+                    "user",
+                    text
+                );
+
+
+                input.disabled = true;
+
+
+                try {
+
+                    await runAgent();
+
+                }
+
+                catch (error) {
+
+                    console.error(
+                        "Agent failed:",
+                        error
+                    );
+
+
+                    addMessage(
+                        "assistant",
+                        `Error: ${error.message}`
+                    );
+
+                }
+
+                finally {
+
+                    input.disabled = false;
+
+                    input.focus();
+
+                }
+
+            }
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Start
+        |--------------------------------------------------------------------------
+        */
+
+        setupWebMCP();
+    </script>
+
+</body>
+
+</html>
