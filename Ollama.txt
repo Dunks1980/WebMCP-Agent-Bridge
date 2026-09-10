@@ -1,0 +1,45 @@
+Run the model I have installed from terminal:
+
+ollama run qwen3:4b
+
+End
+
+CTRL + D
+
+ollama stop qwen3:4b
+
+Available Commands:
+  /set            Set session variables
+  /show           Show model information
+  /load <model>   Load a session or model
+  /save <model>   Save your current session
+  /clear          Clear session context
+  /bye            Exit
+  /?, /help       Help for a command
+  /? shortcuts    Help for keyboard shortcuts
+
+Use """ to begin a multi-line message.
+
+
+
+ollama ls
+
+That lists all models you've downloaded locally, including their size and ID.
+
+You can also use:
+
+ollama ps
+
+That only shows models currently loaded/running, which is what you used earlier to see qwen3:4b at 100% GPU.
+
+And to remove one later:
+
+ollama rm model-name
+
+For example:
+
+ollama rm qwen3:4b
+
+
+
+
