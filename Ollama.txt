@@ -1,4 +1,4 @@
-Run the model I have installed from terminal:
+Optional local provider setup:
 
 ollama run qwen3:4b
 
@@ -7,6 +7,8 @@ End
 CTRL + D
 
 ollama stop qwen3:4b
+
+The bridge also supports OpenAI-compatible and Anthropic endpoints. Choose the provider in the page and enter its endpoint, model, and API key when required.
 
 Available Commands:
   /set            Set session variables

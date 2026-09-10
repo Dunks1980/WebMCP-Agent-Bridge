@@ -9,7 +9,7 @@
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>Local Ollama WebMCP Chat</title>
+    <title>WebMCP Agent Bridge</title>
 
     <style>
         body {
@@ -106,6 +106,10 @@
             font-weight: 500;
         }
 
+        .hidden {
+            display: none;
+        }
+
         form {
             display: flex;
             gap: 10px;
@@ -148,6 +152,12 @@
             background-size: 6px 6px, 6px 6px;
             background-repeat: no-repeat;
             padding-right: 40px;
+            color-scheme: dark;
+        }
+
+        select option {
+            background: #1b1b1b;
+            color: #f5f5f5;
         }
 
         #input {
@@ -207,13 +217,11 @@
 
 <body>
 
-    <h1>Ollama Chat</h1>
+    <h1>WebMCP Agent Bridge</h1>
 
     <p>
-        To test this locally, install a model such as <strong>qwen3:4b</strong> with
-        <code>ollama pull qwen3:4b</code>, then start it with
-        <code>ollama run qwen3:4b</code> so the chat can connect to your local Ollama server.
-        This setup runs well on a 2060 graphics card with 6GB of VRAM.
+        Connect any OpenAI-compatible, Ollama, or Anthropic model endpoint to the WebMCP tools exposed by this page.
+        Keep API keys local to your browser session and use a local proxy when the provider blocks browser requests.
     </p>
 
     <div
@@ -240,19 +248,50 @@
 
     <div class="settings">
         <label class="field">
-            <span>Ollama URL</span>
+            <span>Provider</span>
+            <select id="provider-name">
+                <option value="openai">OpenAI-compatible</option>
+                <option value="ollama">Ollama</option>
+                <option value="anthropic">Anthropic</option>
+            </select>
+        </label>
+
+        <label class="field">
+            <span>Endpoint</span>
             <input
-                id="ollama-url"
-                value="http://localhost:11434/api/chat"
+                id="endpoint-url"
+                value="https://api.openai.com/v1/chat/completions"
                 autocomplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
             >
         </label>
 
         <label class="field">
-            <span>Ollama Model</span>
-            <select id="model-name">
-                <option value="qwen3:4b">qwen3:4b</option>
-            </select>
+            <span>Model</span>
+            <input
+                id="model-name"
+                value="gpt-4o-mini"
+                autocomplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+            >
+            <select id="ollama-model-list" class="hidden" autocomplete="off" data-lpignore="true" data-1p-ignore="true"></select>
+        </label>
+
+        <label class="field">
+            <span>API key (optional for local endpoints)</span>
+            <input
+                id="api-key"
+                name="webmcp-api-key"
+                type="password"
+                placeholder="Stored in memory only"
+                autocomplete="new-password"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-form-type="other"
+                data-bwignore="true"
+            >
         </label>
     </div>
 
@@ -283,8 +322,20 @@
 
 
     <script>
-        const OLLAMA_URL = "http://localhost:11434/api/chat";
-        const MODEL = "qwen3:4b";
+        const DEFAULTS = {
+            openai: {
+                endpoint: "https://api.openai.com/v1/chat/completions",
+                model: "gpt-4o-mini"
+            },
+            ollama: {
+                endpoint: "http://localhost:11434/api/chat",
+                model: "qwen3:4b"
+            },
+            anthropic: {
+                endpoint: "https://api.anthropic.com/v1/messages",
+                model: "claude-3-5-sonnet-latest"
+            }
+        };
 
 
         /*
@@ -298,9 +349,13 @@
         const input = document.querySelector("#input");
         const status = document.querySelector("#status");
         const counter = document.querySelector("#counter");
-        const ollamaUrlInput = document.querySelector("#ollama-url");
+        const providerInput = document.querySelector("#provider-name");
+        const endpointInput = document.querySelector("#endpoint-url");
         const modelInput = document.querySelector("#model-name");
+        const ollamaModelList = document.querySelector("#ollama-model-list");
+        const apiKeyInput = document.querySelector("#api-key");
         const voiceButton = document.querySelector("#voice-button");
+        const SETTINGS_KEY = "webmcp-agent-bridge-settings";
 
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -348,47 +403,115 @@
             recognition.start();
         });
 
-        ollamaUrlInput.value = ollamaUrlInput.value || OLLAMA_URL;
+        function saveSettings() {
+            try {
+                localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+                    provider: providerInput.value,
+                    endpoint: endpointInput.value,
+                    model: providerInput.value === "ollama"
+                        ? ollamaModelList.value || modelInput.value
+                        : modelInput.value
+                }));
+            }
+            catch (error) {
+                console.warn("Could not save LLM settings:", error);
+            }
+        }
 
-        async function loadModels() {
-            const url = (ollamaUrlInput.value || OLLAMA_URL).replace(/\/api\/chat$/i, "/api/tags");
+        function loadSettings() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+
+                if (!saved || !DEFAULTS[saved.provider]) {
+                    return;
+                }
+
+                providerInput.value = saved.provider;
+                endpointInput.value = saved.endpoint || DEFAULTS[saved.provider].endpoint;
+                modelInput.value = saved.model || DEFAULTS[saved.provider].model;
+            }
+            catch (error) {
+                console.warn("Could not load saved LLM settings:", error);
+            }
+        }
+
+        function updateProviderDefaults(resetValues = true) {
+            const defaults = DEFAULTS[providerInput.value];
+
+            if (resetValues) {
+                endpointInput.value = defaults.endpoint;
+                modelInput.value = defaults.model;
+            }
+
+            modelInput.classList.toggle("hidden", providerInput.value === "ollama");
+            ollamaModelList.classList.toggle("hidden", providerInput.value !== "ollama");
+
+            if (providerInput.value === "ollama") {
+                loadOllamaModels();
+            }
+        }
+
+        async function loadOllamaModels() {
+            const url = endpointInput.value.replace(/\/api\/chat\/?$/i, "/api/tags");
+            const savedModel = modelInput.value;
 
             try {
                 const response = await fetch(url);
 
                 if (!response.ok) {
-                    throw new Error(`Could not load models: ${response.status}`);
+                    throw new Error(`Could not load Ollama models: ${response.status}`);
                 }
 
                 const data = await response.json();
+                const models = (data.models || [])
+                    .map(model => model.name)
+                    .filter(Boolean);
 
-                modelInput.innerHTML = "";
+                ollamaModelList.replaceChildren();
 
-                for (const model of data.models || []) {
+                for (const model of models) {
                     const option = document.createElement("option");
-
-                    option.value = model.name;
-                    option.textContent = model.name;
-
-                    if (model.name === MODEL) {
-                        option.selected = true;
-                    }
-
-                    modelInput.appendChild(option);
+                    option.value = model;
+                    option.textContent = model;
+                    ollamaModelList.appendChild(option);
                 }
 
-                if (!modelInput.value) {
-                    modelInput.innerHTML = `<option value="${MODEL}">${MODEL}</option>`;
+                if (!models.length) {
+                    throw new Error("No Ollama models are installed.");
                 }
+
+                ollamaModelList.value = models.includes(savedModel)
+                    ? savedModel
+                    : models[0];
+                modelInput.value = ollamaModelList.value;
+                saveSettings();
             }
             catch (error) {
-                console.error("Failed to load Ollama models:", error);
+                console.warn("Could not load Ollama models:", error);
+                ollamaModelList.replaceChildren();
 
-                modelInput.innerHTML = `<option value="${MODEL}">${MODEL}</option>`;
+                const option = document.createElement("option");
+                option.value = savedModel || DEFAULTS.ollama.model;
+                option.textContent = `${option.value} (unavailable)`;
+                ollamaModelList.appendChild(option);
+                ollamaModelList.value = option.value;
             }
         }
 
-        loadModels();
+        loadSettings();
+        updateProviderDefaults(false);
+        providerInput.addEventListener("change", updateProviderDefaults);
+        endpointInput.addEventListener("input", saveSettings);
+        endpointInput.addEventListener("change", () => {
+            if (providerInput.value === "ollama") {
+                loadOllamaModels();
+            }
+        });
+        modelInput.addEventListener("input", saveSettings);
+        ollamaModelList.addEventListener("change", () => {
+            modelInput.value = ollamaModelList.value;
+            saveSettings();
+        });
 
 
         /*
@@ -563,11 +686,11 @@
 
         /*
         |--------------------------------------------------------------------------
-        | Convert WebMCP tools to Ollama tools
+        | Convert WebMCP tools to provider tool formats
         |--------------------------------------------------------------------------
         */
 
-        async function getOllamaTools() {
+        async function getProviderTools() {
 
             const webmcpTools =
                 await document.modelContext.getTools();
@@ -579,7 +702,7 @@
             );
 
 
-            return webmcpTools.map(tool => {
+            const openAITools = webmcpTools.map(tool => {
 
                 let schema = tool.inputSchema;
 
@@ -629,20 +752,88 @@
                 };
 
             });
+
+            if (providerInput.value !== "anthropic") {
+                return openAITools;
+            }
+
+            return openAITools.map(tool => ({
+                name: tool.function.name,
+                description: tool.function.description,
+                input_schema: tool.function.parameters
+            }));
         }
 
 
         /*
         |--------------------------------------------------------------------------
-        | Ask Ollama
+        | Ask the configured provider
         |--------------------------------------------------------------------------
         */
 
-        async function askOllama() {
+        async function askProvider() {
 
-            const tools = await getOllamaTools();
-            const currentUrl = (ollamaUrlInput.value || OLLAMA_URL).trim();
-            const currentModel = (modelInput.value || MODEL).trim();
+            const tools = await getProviderTools();
+            const provider = providerInput.value;
+            const currentUrl = endpointInput.value.trim();
+            const currentModel = modelInput.value.trim();
+            const headers = {
+                "Content-Type": "application/json"
+            };
+
+            if (apiKeyInput.value.trim()) {
+                headers.Authorization = `Bearer ${apiKeyInput.value.trim()}`;
+            }
+
+            if (provider === "anthropic") {
+                headers["x-api-key"] = apiKeyInput.value.trim();
+                headers["anthropic-version"] = "2023-06-01";
+                delete headers.Authorization;
+            }
+
+            const request = provider === "anthropic"
+                ? {
+                    model: currentModel,
+                    max_tokens: 4096,
+                    messages: messages.map(message => {
+                        if (message.role === "tool") {
+                            return {
+                                role: "user",
+                                content: [{
+                                    type: "tool_result",
+                                    tool_use_id: message.tool_call_id,
+                                    content: message.content
+                                }]
+                            };
+                        }
+
+                        if (message.role === "assistant" && message.tool_calls) {
+                            return {
+                                role: "assistant",
+                                content: [
+                                    ...(message.content ? [{ type: "text", text: message.content }] : []),
+                                    ...message.tool_calls.map(call => ({
+                                        type: "tool_use",
+                                        id: call.id,
+                                        name: call.function.name,
+                                        input: typeof call.function.arguments === "string"
+                                            ? JSON.parse(call.function.arguments)
+                                            : call.function.arguments
+                                    }))
+                                ]
+                            };
+                        }
+
+                        return { role: message.role, content: message.content };
+                    }),
+                    tools
+                }
+                : {
+                    model: currentModel,
+                    messages,
+                    tools,
+                    stream: false
+                };
 
 
             const response = await fetch(
@@ -650,25 +841,8 @@
                 {
 
                     method: "POST",
-
-                    headers: {
-
-                        "Content-Type":
-                            "application/json"
-
-                    },
-
-                    body: JSON.stringify({
-
-                        model: currentModel,
-
-                        messages,
-
-                        tools,
-
-                        stream: false
-
-                    })
+                    headers,
+                    body: JSON.stringify(request)
 
                 }
             );
@@ -677,13 +851,37 @@
             if (!response.ok) {
 
                 throw new Error(
-                    `Ollama returned ${response.status}`
+                    `${provider} returned ${response.status}`
                 );
 
             }
 
 
-            return response.json();
+            const data = await response.json();
+
+            if (provider !== "anthropic") {
+                return data;
+            }
+
+            const text = data.content?.find(block => block.type === "text")?.text || "";
+            const toolCalls = (data.content || [])
+                .filter(block => block.type === "tool_use")
+                .map(block => ({
+                    id: block.id,
+                    type: "function",
+                    function: {
+                        name: block.name,
+                        arguments: JSON.stringify(block.input || {})
+                    }
+                }));
+
+            return {
+                message: {
+                    role: "assistant",
+                    content: text,
+                    ...(toolCalls.length ? { tool_calls: toolCalls } : {})
+                }
+            };
         }
 
 
@@ -708,7 +906,7 @@
 
         /*
         |--------------------------------------------------------------------------
-        | Execute a tool requested by Qwen
+        | Execute a tool requested by the configured model
         |--------------------------------------------------------------------------
         */
 
@@ -718,8 +916,10 @@
                 call.function.name;
 
 
-            const args =
-                call.function.arguments || {};
+            const rawArgs = call.function.arguments || {};
+            const args = typeof rawArgs === "string"
+                ? JSON.parse(rawArgs)
+                : rawArgs;
 
 
             addMessage(
@@ -729,7 +929,7 @@
 
 
             console.log(
-                "Qwen requested tool:",
+                "Model requested tool:",
                 name,
                 args
             );
@@ -804,17 +1004,17 @@
         async function runAgent() {
 
             /*
-            | We keep asking Qwen until it stops requesting tools.
+            | Keep asking the provider until it stops requesting tools.
             */
 
             for (let step = 0; step < 10; step++) {
 
                 const data =
-                    await askOllama();
+                    await askProvider();
 
 
                 console.log(
-                    "Ollama response:",
+                    "Provider response:",
                     data
                 );
 
@@ -833,7 +1033,7 @@
 
 
                 /*
-                | No tool calls = Qwen has finished.
+                | No tool calls = the model has finished.
                 */
 
                 if (!toolCalls.length) {
@@ -860,12 +1060,15 @@
 
 
                     /*
-                    | Give the tool result back to Qwen.
+                    | Give the tool result back to the provider.
                     */
 
                     messages.push({
 
                         role: "tool",
+
+                        tool_call_id:
+                            call.id,
 
                         tool_name:
                             call.function.name,
