@@ -1130,6 +1130,75 @@
             }));
         }
 
+        function isResponsesEndpoint(url) {
+            return /\/responses\/?(?:\?|$)/i.test(url);
+        }
+
+        function getResponsesTools(openAITools) {
+            return openAITools.map(tool => ({
+                type: "function",
+                name: tool.function.name,
+                description: tool.function.description,
+                parameters: tool.function.parameters
+            }));
+        }
+
+        function getResponsesInput() {
+            return messages.map(message => {
+                if (message.role === "tool") {
+                    return {
+                        type: "function_call_output",
+                        call_id: message.tool_call_id,
+                        output: message.content
+                    };
+                }
+
+                if (message.role === "assistant" && message.tool_calls) {
+                    return message.tool_calls.map(call => ({
+                        type: "function_call",
+                        call_id: call.id,
+                        name: call.function.name,
+                        arguments: typeof call.function.arguments === "string"
+                            ? call.function.arguments
+                            : JSON.stringify(call.function.arguments || {})
+                    }));
+                }
+
+                return {
+                    role: message.role,
+                    content: message.content
+                };
+            }).flat();
+        }
+
+        function normalizeResponsesData(data) {
+            const output = data.output || [];
+            const text = output
+                .filter(item => item.type === "message")
+                .flatMap(item => item.content || [])
+                .filter(item => item.type === "output_text")
+                .map(item => item.text)
+                .join("");
+            const toolCalls = output
+                .filter(item => item.type === "function_call")
+                .map(item => ({
+                    id: item.call_id,
+                    type: "function",
+                    function: {
+                        name: item.name,
+                        arguments: item.arguments || "{}"
+                    }
+                }));
+
+            return {
+                message: {
+                    role: "assistant",
+                    content: text,
+                    ...(toolCalls.length ? { tool_calls: toolCalls } : {})
+                }
+            };
+        }
+
 
         /*
         |--------------------------------------------------------------------------
@@ -1139,10 +1208,11 @@
 
         async function askProvider() {
 
-            const tools = await getProviderTools();
             const provider = providerInput.value;
             const currentUrl = endpointInput.value.trim();
             const currentModel = modelInput.value.trim();
+            const responsesEndpoint = provider !== "anthropic" && isResponsesEndpoint(currentUrl);
+            const providerTools = await getProviderTools();
             const headers = {
                 "Content-Type": "application/json"
             };
@@ -1157,7 +1227,14 @@
                 delete headers.Authorization;
             }
 
-            const request = provider === "anthropic"
+            const request = responsesEndpoint
+                ? {
+                    model: currentModel,
+                    input: getResponsesInput(),
+                    tools: getResponsesTools(providerTools),
+                    store: false
+                }
+                : provider === "anthropic"
                 ? {
                     model: currentModel,
                     max_tokens: 4096,
@@ -1192,13 +1269,16 @@
 
                         return { role: message.role, content: message.content };
                     }),
-                    tools
+                    tools: providerTools
                 }
                 : {
                     model: currentModel,
                     messages,
-                    tools,
-                    stream: false
+                    tools: providerTools,
+                    stream: false,
+                    ...( /^gpt-5(?:\.|-|$)/i.test(currentModel)
+                        ? { reasoning_effort: "none" }
+                        : {} )
                 };
 
 
@@ -1216,14 +1296,20 @@
 
             if (!response.ok) {
 
+                const errorBody = await response.text();
+
                 throw new Error(
-                    `${provider} returned ${response.status}`
+                    `${provider} returned ${response.status}: ${errorBody || response.statusText}`
                 );
 
             }
 
 
             const data = await response.json();
+
+            if (responsesEndpoint) {
+                return normalizeResponsesData(data);
+            }
 
             if (provider !== "anthropic") {
                 return data;
